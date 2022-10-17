@@ -766,24 +766,35 @@ granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2
 ```
 
 ```{r}
+png("images_out/basal_markers_heatmap.png",width = 600, height = 400)
 DoHeatmap(kerato, features = basal.kerato.markers)
+dev.off()
+
+png("images_out/spinous_markers_heatmap.png",width = 600, height = 350)
 DoHeatmap(kerato, features = spinous.kerato.markers)
+dev.off()
+
+png("images_out/granular_markers_heatmap.png",width = 600, height = 300)
 DoHeatmap(kerato, features = granular.kerato.markers)
-FeaturePlot(kerato,feature = "Krt14")
+dev.off()
+
 ```
 
 ```{r}
-# increase y axis
-
 # basal markers
+png("images_out/basal_markers_vln.png",width = 400, height = 500)
 Stacked_VlnPlot(seurat_object = kerato, features = basal.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
-
+dev.off()
 
 # spinous markers
+png("images_out/spinous_markers_vln.png",width = 400, height = 400)
 Stacked_VlnPlot(seurat_object = kerato, features = spinous.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
+dev.off()
 
 # granular markers
+png("images_out/granular_markers_vln.png",width = 400, height = 300)
 Stacked_VlnPlot(seurat_object = kerato, features = granular.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
+dev.off()
 ```
 ```{r}
 # Post actin-intersection analysis
@@ -791,9 +802,15 @@ Stacked_VlnPlot(seurat_object = kerato, features = granular.kerato.markers, x_la
 # Actin markers pulled out of clustering
 actin.cluster.markers <- c("Anxa1", "Sptbn2", "Rflnb", "Cavin3", "Tmsb4x", "Phpt1", "Cav1", "Ctsl", "Amotl2", "Hsp90b1", "Slc2a1", "Gmfg", "Dstn")
 
-Stacked_VlnPlot(seurat_object = kerato, features = actin.cluster.markers, x_lab_rotate = TRUE, colors_use = plot.colours)
 
+png("images_out/actin_markers_vln.png",width = 400, height = 650)
+Stacked_VlnPlot(seurat_object = kerato, features = actin.cluster.markers, x_lab_rotate = TRUE, colors_use = plot.colours)
+dev.off()
+
+
+png("images_out/actin_markers_heatmap.png",width = 600, height = 500)
 DoHeatmap(kerato, features = actin.cluster.markers)
+dev.off()
 
 ```
 

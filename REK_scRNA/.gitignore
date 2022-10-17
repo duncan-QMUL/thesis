@@ -1,5 +1,6 @@
 #ignore raw data folder, so no uploads to repo. 
 raw_data/
+images_out/
 
 #ignore R data and history
 .RData
@@ -11,3 +12,4 @@ raw_data/
 #other data files
 .tiff
 .docx
+.png
