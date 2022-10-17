@@ -7,3 +7,7 @@ raw_data/
 
 #ignore html files
 .html
+
+#other data files
+.tiff
+.docx
