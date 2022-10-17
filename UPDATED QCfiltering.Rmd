@@ -38,6 +38,9 @@ kerato.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London
 #initialise the seurat object with the raw (non-normalised) data.
 kerato <- CreateSeuratObject(counts = kerato.data, project = "Kerato", min.cells = 3, min.features = 100)
 kerato
+
+# set cluster colours for functions later. 
+plot.colours <- c("#f87269","#80b00e","#00bdc2","#c679ff")
 ```
 
 ```{r}
@@ -717,7 +720,7 @@ kerato@reductions$umap@cell.embeddings %>%
   filter(largest_gene %in% largest_genes_to_plot) %>%
   ggplot(aes(x=UMAP_1, y=UMAP_2, colour=seurat_clusters)) +
   geom_point() +
-  facet_wrap(vars(largest_gene)) + theme_clean()
+  facet_wrap(vars(largest_gene)) +theme_classic()
 ```
 ```{r}
 kerato@reductions$umap@cell.embeddings %>%
@@ -725,7 +728,7 @@ kerato@reductions$umap@cell.embeddings %>%
   add_column(seurat_clusters=kerato$seurat_clusters, Phase=kerato$Phase) %>%
   ggplot(aes(x=UMAP_1, y=UMAP_2, colour=seurat_clusters)) +
   geom_point() +
-  facet_wrap(vars(Phase)) + theme_clean()
+  facet_wrap(vars(Phase)) + theme_classic()
 ```
 
 ```{r}
@@ -754,12 +757,6 @@ FeaturePlot(kerato,feature = "percent.Largest.Gene")  + scale_color_gradientn(co
 
 ```
 ```{r}
-DoHeatmap(kerato, features = kerato_marker_genes)
-```
-```{r}
-DoHeatmap(kerato, features = actin_markers)
-```
-```{r}
 basal.kerato.markers <- c("Krt14","Krt5","Cdh3","Krt15","Col17a1","Tp73","Fam83g","Fgfr3","Tp63","Bcl11b")
 spinous.kerato.markers <- c("Cdh1","Krt1","Krt10","Dsg1","Lgal57","Hopx","Cyp4f22","Grhl1","Prgs1","Klk9")
 granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2","Trex2","Otx1","Eps8l1","Card18")
@@ -767,6 +764,21 @@ granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2
 
 ```{r}
 DoHeatmap(kerato, features = basal.kerato.markers)
+DoHeatmap(kerato, features = spinous.kerato.markers)
+DoHeatmap(kerato, features = granular.kerato.markers)
 FeaturePlot(kerato,feature = "Krt14")
+```
+
+```{r}
+# increase y axis
+
+# basal markers
+Stacked_VlnPlot(seurat_object = kerato, features = basal.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
+
+# spinous markers
+Stacked_VlnPlot(seurat_object = kerato, features = spinous.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
+
+# granular markers
+Stacked_VlnPlot(seurat_object = kerato, features = granular.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
 ```
 
