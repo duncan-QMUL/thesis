@@ -110,11 +110,6 @@ kerato
 ```
 
 ```{r}
-VlnPlot(kerato, features=c("percent.Largest.Gene"))
-```
-
-
-```{r}
 #create table of QC metrics and name largest gene. 
 
 as_tibble(
@@ -125,7 +120,7 @@ as_tibble(
 qc.metrics
 ```
 ```{r}
-
+# plot features and counts with mito colouring of points
 qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.mt)) + 
@@ -163,8 +158,11 @@ qc.metrics %>%
   theme_calc() + geom_vline(xintercept = 0)
 ```
 ```{r}
+
+# create complexity scale
 min(c(max(qc.metrics$complexity_diff),0-min(qc.metrics$complexity_diff))) -> complexity_scale
 
+# plot log10(features) and log10(counts) with complexity differential colouring of points
 qc.metrics %>%
   mutate(complexity_diff=replace(complexity_diff,complexity_diff< -0.1,-0.1)) %>%
   ggplot(aes(x=log10(nCount_RNA), y=log10(nFeature_RNA), colour=complexity_diff)) +
@@ -183,10 +181,10 @@ complexity.diff <- qc.metrics %>% pull(complexity_diff)
 
 kerato@meta.data <- cbind(kerato@meta.data, complexity.diff)
 
-# kerato <- AddMetaData(object = kerato, metadata = complexity.diff, col.name = "complexity_diff")
 ```
 
 ```{r}
+# plot log10(features) and log10(counts) with mito colouring of points
 qc.metrics.log10.scatter <- qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.mt)) + 
@@ -207,6 +205,7 @@ ggsave("qc_log10_scatter.tiff", plot = print(qc.metrics.log10.scatter, device = 
 ```
 
 ```{r}
+# plot log10(features) and log10(counts) with ribosomal colouring of points
 qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.ribosomal)) + 
@@ -222,6 +221,7 @@ qc.metrics %>%
   theme(panel.grid.major.x = element_line(colour = 'light grey'))
 ```
 ```{r}
+# plot largest gene with ribosomal mRNA with complexity differential colouring of points
 qc.metrics %>%
   ggplot(aes(x=percent.Largest.Gene, y=percent.ribosomal, colour = complexity_diff)) +
   geom_point() + 
@@ -235,6 +235,7 @@ qc.metrics %>%
 ```
 
 ```{r}
+# plot largest gene with mito RNA with complexity differential colouring of points
 qc.metrics %>%
   ggplot(aes(x=percent.Largest.Gene, y=percent.mt, colour = complexity_diff)) +
   geom_point() + 
@@ -249,20 +250,20 @@ qc.metrics %>%
 
 
 ```{r}
+# create a largest gene list
 qc.metrics %>%
   group_by(largest_gene) %>%
   count() %>%
   arrange(desc(n)) -> largest_gene_list
 
 largest_gene_list
-```
-```{r}
 
-
+# make list of largest genes to plot
 largest_gene_list %>%
   filter(n>5) %>%
   pull(largest_gene) -> largest_genes_to_plot
 
+# plot log10(features) and log10(counts) with largest gene colouring of points
 qc.metrics %>%
   filter(largest_gene %in% largest_genes_to_plot) %>%
   mutate(largest_gene=factor(largest_gene, levels=largest_genes_to_plot)) %>%
@@ -277,6 +278,7 @@ qc.metrics %>%
   theme(panel.grid.major.x = element_line(colour = 'light grey'))
 ```
 ```{r}
+# plot complexity diff against largest gene
 qc.metrics %>%
   filter(largest_gene %in% largest_genes_to_plot) %>%
   mutate(largest_gene=factor(largest_gene, levels=largest_genes_to_plot)) %>%
@@ -291,6 +293,7 @@ qc.metrics %>%
   theme(panel.grid.major.x = element_line(colour = 'light grey'))
 ```
 ```{r}
+# plot complexity diff against largest gene with mito percentage
 qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(x=complexity_diff, y=percent.Largest.Gene, colour=percent.mt)) +
@@ -304,6 +307,7 @@ qc.metrics %>%
 
 ```
 ```{r}
+# plot complexity diff against % mito with largest gene
 qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(x=complexity_diff, y=percent.mt, colour=percent.Largest.Gene)) +
@@ -319,6 +323,7 @@ qc.metrics %>%
 
 
 ```{r}
+# plot complexity diff against largest gene with ribo percentage
 qc.metrics %>%
   arrange(percent.ribosomal) %>%
   ggplot(aes(x=complexity_diff, y=percent.Largest.Gene, colour=percent.ribosomal)) +
@@ -332,6 +337,7 @@ qc.metrics %>%
   theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12)) 
 ```
 ```{r}
+# plot complexity diff against ribo % with largest gene colouring
 qc.metrics %>%
   arrange(percent.mt) %>%
   ggplot(aes(x=complexity_diff, y=percent.ribosomal, colour=percent.Largest.Gene)) +
@@ -346,6 +352,7 @@ qc.metrics %>%
 ```
 
 ```{r}
+# Distribution of percentage mitochondrial RNA
 qc.metrics %>%
   ggplot(aes(percent.mt)) + 
   geom_histogram(binwidth = 0.5, fill="yellow", colour="black") +
@@ -354,11 +361,10 @@ qc.metrics %>%
   xlab("% mitochondrial RNA") + 
   ylab("Count") +
   theme_gdocs()
-
-
-
 ```
+
 ```{r}
+# Distribution of Percentage Largest Gene
 qc.metrics %>%
   ggplot(aes(percent.Largest.Gene)) + 
   geom_histogram(binwidth = 0.7, fill="coral", colour="black") +
@@ -367,7 +373,9 @@ qc.metrics %>%
   ylab("Count") +
   theme_gdocs()
 ```
+
 ```{r}
+# GAPDH expression distribution
 ggplot(mapping = aes(kerato@assays$RNA@data["Gapdh",])) + 
   geom_histogram(binwidth = 0.05, fill="coral", colour="black") + 
   ggtitle("GAPDH expression distribution") +
@@ -376,19 +384,11 @@ ggplot(mapping = aes(kerato@assays$RNA@data["Gapdh",])) +
   theme_calc()
 ```
 
-
 ```{r}
-# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
-# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
-
-plot1 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "percent.mt")
-plot2 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
-plot3 <- FeatureScatter(kerato, feature1 = "percent.mt" , feature2 = "nFeature_RNA") + xlab('Percentage mitochondrial RNA') + ylab('Barcode feature count') + theme(legend.position = "None")
-plot1 
-plot2
-plot3
+# summarise metadata
 summary(kerato@meta.data)
 ```
+
 ```{r}
 # make new dataframe with superfluous info removed
 keep.columns <- c("Cell.Barcode","nCount_RNA","nFeature_RNA","percent.mt","percent.ribosomal","percent.Largest.Gene")
@@ -436,64 +436,18 @@ kerato <- NormalizeData(kerato, normalization.method = "LogNormalize", scale.fac
 
 
 ```{r}
-library(Seurat)
-library("biomaRt") 
-
-# sphase_humanGenes <- cc.genes.updated.2019$s.genes
-# g2mphase_humanGenes <- cc.genes.updated.2019$g2m.genes
-# 
-# human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
-# rat = useMart("ensembl", dataset = "rnorvegicus_gene_ensembl")
-# 
-# x = sphase_humanGenes
-# 
-# r.s.genes = getLDS(attributes = c("rgd_symbol"), 
-#                  filters = "rgd_symbol", 
-#                  values = x , 
-#                  mart = rat, 
-#                  attributesL = c("hgnc_symbol"), 
-#                  martL = human, 
-#                  uniqueRows=T)
-# 
-# x = g2mphase_humanGenes
-# r.g2m.genes = getLDS(attributes = c("rgd_symbol"), 
-#                  filters = "rgd_symbol", 
-#                  values = x , 
-#                  mart = rat, 
-#                  attributesL = c("hgnc_symbol"), 
-#                  martL = human, 
-#                  uniqueRows=T)
-
-
-#function to check mirror access is working
-# ensembl = useMart("ensembl", host="https://useast.ensembl.org")
-# dim(listDatasets(ensembl))
-
-# host="https://useast.ensembl.org",
-
-# Basic function to convert mouse to human gene names
+# Basic function to convert human gene names to corresponding rat genes
 convertHumanGeneList <- function(x){
 require("biomaRt")
   
-# mart <- useMart("ENSEMBL_MART_ENSEMBL")
-# human <- useDataset("hsapiens_gene_ensembl", mart)
-
+# marts contain the gene analogs between species, so can be used for comparison
+# find human gene list
 human.mart <- biomaRt::useMart(host="https://dec2021.archive.ensembl.org", "ENSEMBL_MART_ENSEMBL", dataset="hsapiens_gene_ensembl")
-# rat <- useDataset("rnorvegicus_gene_ensembl", mart)
 
+# find rat gene list
 rat.mart <- biomaRt::useMart(host="https://dec2021.archive.ensembl.org", "ENSEMBL_MART_ENSEMBL", dataset="rnorvegicus_gene_ensembl")
 
-# human = useMart("ensembl", host = 'https://www.ensembl.org', dataset = "hsapiens_gene_ensembl")
-# rat = useMart("ensembl",  host = 'https://www.ensembl.org', dataset = "rnorvegicus_gene_ensembl")
-
-# genesV2 = getLDS(attributes = c("rgd_symbol"), 
-#                  filters = "rgd_symbol", 
-#                  values = x , 
-#                  mart = rat, 
-#                  attributesL = c("hgnc_symbol"), 
-#                  martL = human, 
-#                  uniqueRows=T)
-
+# get the gene analogs from the marts and cross compare
 genesV2 = getLDS(attributes = c("hgnc_symbol"), 
                  filters = "hgnc_symbol", 
                  values = x , 
@@ -508,14 +462,15 @@ print(head(ratx))
 return(ratx)
 }
 
-# maybe try this : https://support.bioconductor.org/p/122534/
-
+# build rat S-phase and G2M phase gene lists
 r.s.genes <- convertHumanGeneList(cc.genes.updated.2019$s.genes)
 r.g2m.genes <- convertHumanGeneList(cc.genes.updated.2019$g2m.genes)
 
+# printout to show completion of task
 head(r.s.genes)
 head(r.g2m.genes)
 
+# comparison of lengths
 length(cc.genes.updated.2019$s.genes)
 length(r.s.genes)
 
@@ -524,23 +479,10 @@ length(r.g2m.genes)
 ```
 
 ```{r}
-
+# cell cycle scoring system to assign cell phase identities to each barcode
 kerato <- CellCycleScoring(kerato, s.features = r.s.genes, g2m.features = r.g2m.genes, set.ident = TRUE) 
 
 kerato[[]]
-#remake column of nested list like cc.genes
-# r.s.genes <- s_genes$RGD.symbol
-# g2m.genes <- g2m_genes$RGD.symbol
-# #nested list with equivalent titles. 
-# ratGenes <- list(s.genes = s_genes, g2m.genes = g2m_genes)
-
-
-
-# kerato <- CellCycleScoring(kerato, s.features = ratGenes$s.genes, g2m.features = ratGenes$g2m.genes, set.ident = TRUE)
-#this command reveals that not enough of the genes exist in the dataset for this analysis to be performed. 
-
-#even building a new seurat object with min.cells = 1 (only allows genes in that have expression in 1 cell) this fails
-
 
 ```
 ```{r}
@@ -549,9 +491,11 @@ kerato.tbl <- as_tibble(kerato[[]])                                             
 kerato.tbl$Phase <- factor(kerato.tbl$Phase,                                    # Change ordering manually
                   levels = c("G1","S","G2M")) 
 
+# bar chart of cell phases
 kerato.tbl %>%
   ggplot(aes(Phase)) + geom_bar(aes(fill = Phase)) + theme_calc() + scale_fill_npg()
 
+# scatterplot of cell phases using scores as axes
 kerato.tbl %>%
   ggplot(aes(x=S.Score, y=G2M.Score, color=Phase)) + 
   geom_point() +
@@ -559,6 +503,7 @@ kerato.tbl %>%
   theme_calc() +
   theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12)) +scale_color_npg()
 
+# tabulate the phases
 table(kerato.tbl$Phase)
 ```
 
@@ -578,6 +523,7 @@ plot1
 plot2
 ```
 ```{r}
+# create variance dataframe for later plotting
 as_tibble(HVFInfo(kerato),rownames = "Gene") -> variance.data
 
 variance.data %>% 
@@ -585,8 +531,8 @@ variance.data %>%
 ) -> variance.data
 
 head(variance.data, n=10)
-```
-```{r}
+
+# variance data scatterplot
 variance.data %>% 
   ggplot(aes(log(mean),log(variance),color=hypervariable)) + 
   geom_point() + 
@@ -618,53 +564,28 @@ kerato <- RunPCA(kerato, features = VariableFeatures(object = kerato))
 print(kerato[["pca"]], dims = 1:5, nfeatures = 5)
 ```
 ```{r}
-#visualise the PCA coordinates of genes
-VizDimLoadings(kerato, dims = 1, nfeatures = 20, reduction = "pca") + coord_flip() +  scale_x_reverse() + theme(axis.text.x = element_text(size = 6,angle = 45, vjust=1, hjust = 1))+ scale_colour_npg()
-```
+#visualise the PCA coordinates of genes, loading plots indicate what factors contribute most to variability. 
+VizDimLoadings(kerato, dims = 1, nfeatures = 20, reduction = "pca") + coord_flip() + theme(axis.text.x = element_text(size = 6,angle = 45, vjust=1, hjust = 1))+ scale_colour_npg()
 
-```{r}
+
 # plot cells using two PCAs as axis. 
 DimPlot(kerato, reduction = "pca")
-
-
-names(qc.metrics)
-```
-```{r}
-
-
-# umap_largest_genes_1 <- DimPlot(kerato, reduction="umap", group.by = "largest_gene",label = TRUE, label.size = 3) 
-# umap_largest_genes_2 <- LabelPoints(plot = umap_largest_genes_1, points = largest_genes_to_plot, repel = TRUE) 
-# 
-# 
-# umap_largest_genes_1
-# umap_largest_genes_2
-
-# plot1 <- VariableFeaturePlot(kerato)
-# plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
-# plot1 
-# plot2
-
-
-
-
-
 ```
 
 
 ```{r}
-#In particular DimHeatmap allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting cells to a number plots the 'extreme' cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
-DimHeatmap(kerato, dims = 1:2, nfeatures = 20,cells = 300, balanced = TRUE, fast = F) 
-DimHeatmap(kerato, dims = 2, nfeatures = 20,cells = 300, balanced = TRUE)
-DimHeatmap(kerato, dims = 3:4, cells = 300, balanced = TRUE)
-DimHeatmap(kerato, dims = 5:6, cells = 300, balanced = TRUE)
-DimHeatmap(kerato, dims = 7:8, cells = 300, balanced = TRUE)
+# DimHeatmap allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. 
+DimHeatmap(kerato, dims = 1:2, nfeatures = 20,cells = 300, fast = F) 
+DimHeatmap(kerato, dims = 3:4, nfeatures = 20,cells = 300, fast = F)
+DimHeatmap(kerato, dims = 5:6, nfeatures = 20,cells = 300, fast = F)
+DimHeatmap(kerato, dims = 7:8, nfeatures = 20,cells = 300, fast = F)
 ```
 ```{r}
 # NOTE: This process can take a long time for big datasets, comment out for expediency. More approximate techniques such as those implemented in ElbowPlot() can be used to reduce computation time
-kerato <- JackStraw(kerato, num.replicate = 100)
-kerato <- ScoreJackStraw(kerato, dims = 1:20)
-
-JackStrawPlot(kerato, dims = 1:15)
+# kerato <- JackStraw(kerato, num.replicate = 100)
+# kerato <- ScoreJackStraw(kerato, dims = 1:20)
+# 
+# JackStrawPlot(kerato, dims = 1:15)
 ```
 ```{r}
 #elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
@@ -679,15 +600,10 @@ kerato <- FindClusters(kerato, resolution = 0.4)
 head(Idents(kerato), 5)
 ```
 
-```{r}
-
-```
-
 
 ```{r}
 #Plot UMAP
 kerato <- RunUMAP(kerato, dims = 1:7)
-
 
 DimPlot(kerato, reduction = "umap")
 FeaturePlot(kerato, feature = "complexity.diff")
@@ -695,6 +611,7 @@ FeaturePlot(kerato, feature = "complexity.diff")
 ```
 
 ```{r}
+# cell cycle phase per cluster %
 kerato@meta.data %>%
   group_by(seurat_clusters,Phase) %>%
   count() %>%
@@ -706,6 +623,8 @@ kerato@meta.data %>%
   ggtitle("Percentage of cell cycle phases per cluster") + theme_calc() + labs( x = "Cluster", y = "Percent")
 ```
 ```{r}
+# violin plots of QC metrics per cluster
+
 VlnPlot(kerato,features="percent.Largest.Gene") + labs(title = "Percentage largest gene", x = "Cluster")
 VlnPlot(kerato,features="percent.ribosomal") + labs(title = "Percentage ribosomal genes", x = "Cluster")
 VlnPlot(kerato,features="percent.mt") + labs(title = "Percentage mitochondrial genes", x = "Cluster")
@@ -715,6 +634,8 @@ VlnPlot(kerato,features="nCount_RNA") + labs(title = "Counts per barcode", x = "
 
 ```
 ```{r}
+# UMAP showing facets of the largest gene locations
+
 kerato@reductions$umap@cell.embeddings %>%
   as_tibble() %>%
   add_column(seurat_clusters=kerato$seurat_clusters, largest_gene=kerato$largest_gene) %>%
@@ -724,6 +645,7 @@ kerato@reductions$umap@cell.embeddings %>%
   facet_wrap(vars(largest_gene)) +theme_classic()
 ```
 ```{r}
+# UMAP of the phases facetted by cluster
 png("images_out/umap/phases_and_clusters.png",width = 400, height = 600)
 kerato@reductions$umap@cell.embeddings %>%
   as_tibble() %>%
@@ -769,14 +691,18 @@ granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2
 ```
 
 ```{r}
+# heatmaps of kerato marker genes for different strata
+# basal markers
 png("images_out/vln_and_heat/basal_markers_heatmap.png",width = 600, height = 400)
 DoHeatmap(kerato, features = basal.kerato.markers)
 dev.off()
 
+# spinous markers
 png("images_out/vln_and_heat/spinous_markers_heatmap.png",width = 600, height = 350)
 DoHeatmap(kerato, features = spinous.kerato.markers)
 dev.off()
 
+# granular markers
 png("images_out/vln_and_heat/granular_markers_heatmap.png",width = 600, height = 300)
 DoHeatmap(kerato, features = granular.kerato.markers)
 dev.off()
@@ -784,6 +710,7 @@ dev.off()
 ```
 
 ```{r}
+# violin plot of kerat markers
 # basal markers
 png("images_out/vln_and_heat/basal_markers_vln.png",width = 400, height = 500)
 Stacked_VlnPlot(seurat_object = kerato, features = basal.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
@@ -803,6 +730,7 @@ dev.off()
 # Post actin-intersection analysis
 
 # Actin markers pulled out of clustering
+# and respective plots
 actin.cluster.markers <- c("Anxa1", "Sptbn2", "Rflnb", "Cavin3", "Tmsb4x", "Phpt1", "Cav1", "Ctsl", "Amotl2", "Hsp90b1", "Slc2a1", "Gmfg", "Dstn")
 
 
