@@ -1,0 +1,9 @@
+#ignore raw data folder, so no uploads to repo. 
+raw_data/
+
+#ignore R data and history
+.RData
+.Rhistory
+
+#ignore html files
+.html

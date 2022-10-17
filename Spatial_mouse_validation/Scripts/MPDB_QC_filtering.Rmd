@@ -1,0 +1,209 @@
+---
+title: "Mouse Pore Data Project"
+output: html_notebook
+---
+
+
+```{r}
+#load libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(SeuratData)
+
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Raw Data")
+
+#load the dataset from the raw data downloaded
+WT2_1.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Raw Data/raw_feature_bc_matrix-WT2-1/")
+
+#initialise the seurat object with the raw (non-normalised) data.
+MPDB_WT2_1 <- CreateSeuratObject(counts = WT2_1.data, project = "MPDB WT2_1", min.cells = 3, min.features = 100)
+
+
+WT2_2.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Raw Data/raw_feature_bc_matrix-WT2-2/")
+
+MPDB_WT2_2 <- CreateSeuratObject(counts = WT2_2.data, project = "MMPDB WT2_2", min.cells = 3, min.features = 100)
+
+
+WT1_3.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Raw Data/raw_feature_bc_matrix-WT1-WT3/")
+
+
+MPDB_WT1_3 <- CreateSeuratObject(counts = WT1_3.data, project = "MPDB WT1_3", min.cells = 3, min.features = 100)
+
+
+MPDB_WT2_1
+MPDB_WT2_2
+MPDB_WT1_3
+
+```
+```{r}
+
+#Merge all matrix files into one seurat object with identities assigned. 
+ALL_MPDB <- merge(MPDB_WT2_1, y = c(MPDB_WT2_2, MPDB_WT1_3), add.cell.ids = c("2.1", "2.2", "1+3"), project = "ALL_MPDB")
+ALL_MPDB
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats. Added percentage of mitochondrial RNA per barcode to 'percent.mt'. 
+ALL_MPDB[["percent.mt"]] <- PercentageFeatureSet(ALL_MPDB, pattern = "^mt-")
+
+# show example metadata present. 
+head(ALL_MPDB@meta.data, 5)
+```
+
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(ALL_MPDB, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+summary(ALL_MPDB@meta.data)
+```
+
+```{r}
+# here is where we filter with QC metrics, look at violin plots to see number of cells excluded. Will need high mt% and low feature no. to process majority of cells
+ALL_MPDB_filtered <- subset(ALL_MPDB, subset = nFeature_RNA > 500 & nFeature_RNA < 10000 & percent.mt < 5)
+
+ALL_MPDB_filtered_info <- ALL_MPDB_filtered@meta.data %>% as.data.frame()
+## extract meta data
+# the resulting object has one "row" per cell
+cat('Number of cells in analysis:', nrow(ALL_MPDB_filtered_info))
+#number of cells pulled through using the filters above is printed to the terminal.
+
+```
+
+```{r}
+#log normalisation of data
+ALL_MPDB_filtered <- NormalizeData(ALL_MPDB_filtered, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+library("biomaRt") 
+
+sphase_humanGenes <- cc.genes.updated.2019$s.genes
+g2mphase_humanGenes <- cc.genes.updated.2019$g2m.genes
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+x = sphase_humanGenes
+
+s_genes = getLDS(attributes = c("mgi_symbol"), 
+                 filters = "mgi_symbol", 
+                 values = x , 
+                 mart = mouse, 
+                 attributesL = c("hgnc_symbol"), 
+                 martL = human, 
+                 uniqueRows=T)
+
+x = g2mphase_humanGenes
+g2m_genes = getLDS(attributes = c("mgi_symbol"), 
+                 filters = "mgi_symbol", 
+                 values = x , 
+                 mart = mouse, 
+                 attributesL = c("hgnc_symbol"), 
+                 martL = human, 
+                 uniqueRows=T)
+
+s_genes
+g2m_genes
+```
+
+```{r}
+
+
+#remake column of nested list like cc.genes
+s_genes <- s_genes$MGI.symbol
+g2m_genes <- g2m_genes$MGI.symbol
+#nested list with equivalent titles. 
+ratGenes <- list(s.genes = s_genes, g2m.genes = g2m_genes)
+
+
+
+ALL_MPDB_filtered <- CellCycleScoring(ALL_MPDB_filtered, s.features = ratGenes$s.genes, g2m.features = ratGenes$g2m.genes, set.ident = TRUE)
+```
+
+```{r}
+as_tibble(ALL_MPDB_filtered[[]]) %>%
+  ggplot(aes(x=S.Score, y=G2M.Score, color=Phase)) + 
+  geom_point() +
+  coord_cartesian(xlim=c(-0.15,0.15), ylim=c(-0.15,0.15))
+
+as_tibble(ALL_MPDB_filtered[[]]) %>%
+  ggplot(aes(Phase)) + geom_bar()
+```
+
+
+```{r}
+#finding HVGs
+# vst: First, fits a line to the relationship of log(variance) and log(mean) using local polynomial regression (loess). Then standardizes the feature values using the observed mean and expected variance (given by the fitted line). Feature variance is then calculated on the standardized values after clipping to a maximum (see clip.max parameter).
+ALL_MPDB_filtered <- FindVariableFeatures(ALL_MPDB_filtered, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(ALL_MPDB_filtered), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(ALL_MPDB_filtered)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 
+plot2
+```
+
+```{r}
+#Next, we apply a linear transformation ('scaling') that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData function:
+
+#Shifts the expression of each gene, so that the mean expression across cells is 0
+#Scales the expression of each gene, so that the variance across cells is 1
+#This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate
+#The results of this are stored in pbmc[["RNA"]]@scale.data
+all.genes <- rownames(ALL_MPDB_filtered)
+ALL_MPDB_filtered <- ScaleData(ALL_MPDB_filtered, features = all.genes)
+```
+
+```{r}
+#run the PCA analysis of the dataset
+ALL_MPDB_filtered <- RunPCA(ALL_MPDB_filtered, features = VariableFeatures(object = ALL_MPDB_filtered))
+
+# Examine and visualize PCA results a few different ways
+print(ALL_MPDB_filtered[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+```{r}
+#elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
+ElbowPlot(ALL_MPDB_filtered)
+```
+
+```{r}
+# NOTE: This process can take a long time for big datasets, comment out for expediency. More approximate techniques such as those implemented in ElbowPlot() can be used to reduce computation time
+# ALL_MPDB_filtered <- JackStraw(ALL_MPDB_filtered, num.replicate = 100)
+# ALL_MPDB_filtered <- ScoreJackStraw(ALL_MPDB_filtered, dims = 1:20)
+# 
+# JackStrawPlot(ALL_MPDB_filtered, dims = 1:15)
+
+#first 5 PCs seem to give the most variation
+```
+
+```{r}
+#Here is where we optimise the number of PCs used to cluster the cells, and the resolution of the clustering algorithm.
+ALL_MPDB_filtered <- FindNeighbors(ALL_MPDB_filtered, dims = 1:5)
+ALL_MPDB_filtered <- FindClusters(ALL_MPDB_filtered, resolution = 0.8)
+
+head(Idents(ALL_MPDB_filtered), 5)
+```
+
+```{r}
+#Plot UMAP
+ALL_MPDB_filtered <- RunUMAP(ALL_MPDB_filtered, dims = 1:5)
+DimPlot(ALL_MPDB_filtered, reduction = "umap")
+DimPlot(ALL_MPDB_filtered, reduction = "pca")
+```
+
+```{r}
+#You can save the object at this point so that it can easily be loaded back in without having to rerun the computationally intensive steps performed above, or easily shared with collaborators.
+saveRDS(ALL_MPDB_filtered, file = "MPDB_filtered.rds")
+```

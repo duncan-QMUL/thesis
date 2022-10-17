@@ -1,0 +1,145 @@
+---
+title: "MPDB Post_filtering"
+output: html_notebook
+---
+
+```{r}
+#these libraries are ported here in case you remove the code and place elsewhere.
+# install.packages('Signac','Seurat') # These packages often appear to be outdated/broken, so this line ensures up to date libraries before code running. 
+
+
+#Load Libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+library(openxlsx)
+
+
+# set working directory
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Scripts")
+
+# load .rds file with pre-filtered data. 
+ALL_MPDB <- readRDS(file = "MPDB_filtered.rds")
+
+ALL_MPDB
+```
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones using only.pos = TRUE
+ALL_MPDB.markers <- FindAllMarkers(ALL_MPDB, only.pos = FALSE, min.pct = 0.25, logfc.threshold = 0.25)
+ALL_MPDB.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+
+cluster_markers <- ALL_MPDB.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -0.6, 0.6) & p_val_adj < 0.05)
+
+
+top_markers <- ALL_MPDB.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -1, 1) & p_val_adj < 0.05)
+
+#write out markers to excel file. Cosnider using CSV as these are easier to manipulate.
+
+write.xlsx(cluster_markers,"allcluster_markers.xlsx")
+# https://scrnaseq-course.cog.sanger.ac.uk/website/seurat-chapter.html
+# has a tutorial explaining these things
+```
+```{r}
+#Lower Keratinocyte markers
+VlnPlot(ALL_MPDB, features = c("Krt10"))
+VlnPlot(ALL_MPDB, features = c("Krt1"))
+VlnPlot(ALL_MPDB, features = c("Dsp"))
+VlnPlot(ALL_MPDB, features = c("Krt14"))
+
+```
+```{r}
+#upper epidermis
+VlnPlot(ALL_MPDB, features = c("Lor"))
+VlnPlot(ALL_MPDB, features = c("Flg"))
+VlnPlot(ALL_MPDB, features = c("Hrnr"))
+VlnPlot(ALL_MPDB, features = c("Cdsn"))
+```
+
+
+```{r}
+#Dermal Fib markers
+VlnPlot(ALL_MPDB, features = c("Gsn")) 
+VlnPlot(ALL_MPDB, features = c("Col1a2")) 
+VlnPlot(ALL_MPDB, features = c("Dcn"))
+VlnPlot(ALL_MPDB, features = c("Vim"))
+
+```
+
+```{r}
+#Sweat gland markers
+VlnPlot(ALL_MPDB, features = c("Krt18")) 
+VlnPlot(ALL_MPDB, features = c("Clic6")) #water secreting cells
+VlnPlot(ALL_MPDB, features = c("Aqp5")) 
+VlnPlot(ALL_MPDB, features = c("Krt18")) 
+```
+```{r}
+#muscle cells
+VlnPlot(ALL_MPDB, features = c("Myl1")) #ductal cells
+VlnPlot(ALL_MPDB, features = c("Des")) #water secreting cells
+VlnPlot(ALL_MPDB, features = c("Neb")) #distal tubular cells
+VlnPlot(ALL_MPDB, features = c("Ttn")) # glandular cells
+VlnPlot(ALL_MPDB, features = c("Acta1")) # glandular cells
+```
+
+```{r}
+#SET IDENTS THAT ARE TO BE REMOVED BASED ON THIS INFO
+extracted_clusters <- c("0", "1", "2", "5", "7")
+```
+
+```{r}
+DimPlot(ALL_MPDB)
+FeaturePlot(ALL_MPDB, features = "Anxa1", label = TRUE)
+```
+```{r}
+# assignment of cluster IDs
+# 0,1,2,5,7 = kerats, 7 = upper kerats
+#  8-11 = fibs and sweat glands
+# 3-4 = muscle cells
+
+new.cluster.ids <- c("Kerat-1", "Kerat-2", "Kerat-3", "Muscle-1", "Muscle-2","Kerat-4", "Misc","Late Kerat","Fib + Sweat Gland-1", "Fib + Sweat Gland-2","Fib + Sweat Gland-3","Fib + Sweat Gland-4")
+names(new.cluster.ids) <- levels(ALL_MPDB)
+ALL_MPDB <- RenameIdents(ALL_MPDB, new.cluster.ids)
+DimPlot(ALL_MPDB, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+
+DimPlot(ALL_MPDB, reduction = "umap", label = F, pt.size = 0.5) + NoLegend()
+
+DimPlot(ALL_MPDB, reduction = "umap", label = F, pt.size = 0.5)
+
+```
+
+
+```{r}
+# Create list of marker genes for the clusters using filters. min.pct is the minimum percentage present. only.pos selects only positive markers for this.
+
+markers_streamlined <-
+  ALL_MPDB %>%
+  FindAllMarkers(only.pos = FALSE, min.pct = 0.25, thresh.use = 0.25) %>%
+  group_by(cluster) %>% 
+  top_n(6, avg_log2FC) # only take top ten genes.
+
+# Plot heatmap
+ALL_MPDB %>%
+  DoHeatmap(
+    features = markers_streamlined$gene
+    
+  )
+
+# changing text size with + theme(axis.text.y = element_text(size = 0.1)) doesn't seem to work, needs some graphical adjustments. 
+```
+
+```{r}
+#subset seurat object
+keratinocytes <- subset(ALL_MPDB, idents = extracted_clusters)
+keratinocytes
+
+saveRDS(keratinocytes, file = "keratinocytes_only.rds")
+```
+
+
+

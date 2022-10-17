@@ -1,0 +1,296 @@
+---
+title: "MPDB_kerats_only_analysis"
+output: html_notebook
+---
+
+```{r}
+#these libraries are ported here in case you remove the code and place elsewhere.
+# install.packages('Signac','Seurat') # These packages often appear to be outdated/broken, so this line ensures up to date libraries before code running. 
+
+
+#Load Libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(ggpubr)
+library(openxlsx)
+```
+
+
+```{r}
+# set working directory
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Scripts")
+
+# load .rds file with pre-filtered data. 
+kerats <- readRDS(file = "keratinocytes_only.rds")
+
+kerats
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(kerats, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+summary(kerats@meta.data)
+```
+
+```{r}
+
+#run the PCA analysis of the dataset
+kerats <- RunPCA(kerats, features = VariableFeatures(object = kerats))
+
+# Examine and visualize PCA results a few different ways
+print(kerats[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+
+```{r}
+
+#elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
+ElbowPlot(kerats)
+
+#pick 4 PCs
+```
+```{r}
+#Here is where we optimise the number of PCs used to cluster the cells, and the resolution of the clustering algorithm.
+kerats <- FindNeighbors(kerats, dims = 1:4)
+kerats <- FindClusters(kerats, resolution = 0.5)
+
+head(Idents(kerats), 5)
+```
+
+```{r}
+#Plot UMAP
+kerats <- RunUMAP(kerats, dims = 1:5)
+DimPlot(kerats, reduction = "umap")
+DimPlot(kerats, reduction = "pca")
+```
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones using only.pos = TRUE
+kerats.markers <- FindAllMarkers(kerats, only.pos = FALSE, min.pct = 0.25, logfc.threshold = 0.25)
+kerats.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+
+cluster_markers <- kerats.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -0.6, 0.6) & p_val_adj < 0.05)
+
+
+top_markers <- kerats.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -1, 1) & p_val_adj < 0.05)
+
+#write out markers to excel file. Cosnider using CSV as these are easier to manipulate.
+
+write.xlsx(cluster_markers,"kerats_allcluster_markers.xlsx")
+# https://scrnaseq-course.cog.sanger.ac.uk/website/seurat-chapter.html
+# has a tutorial explaining these things
+```
+
+
+```{r}
+#Lower Keratinocyte markers
+VlnPlot(kerats, features = c("Krt10"))
+VlnPlot(kerats, features = c("Krt1"))
+VlnPlot(kerats, features = c("Dsp"))
+VlnPlot(kerats, features = c("Krt14"))
+
+```
+```{r}
+#upper epidermis
+VlnPlot(kerats, features = c("Lor"))
+VlnPlot(kerats, features = c("Flg"))
+VlnPlot(kerats, features = c("Hrnr"))
+VlnPlot(kerats, features = c("Cdsn"))
+VlnPlot(kerats, features = c("Ivl"))
+VlnPlot(kerats, features = c("Slurp1"))
+VlnPlot(kerats, features = c("Crnn"))
+```
+```{r}
+DimPlot(kerats)
+FeaturePlot(kerats, features = "Lor", label = TRUE)
+FeaturePlot(kerats, features = "Flg", label = TRUE)
+
+
+FeaturePlot(kerats, features = "Lce1m", label = TRUE)
+
+FeaturePlot(kerats, features = "Trp63", label = TRUE)
+```
+```{r}
+#actin binding genes and GOIs
+VlnPlot(kerats, features = c("Sptbn2"))
+VlnPlot(kerats, features = c("Amotl2"))
+VlnPlot(kerats, features = c("Anxa1"))
+VlnPlot(kerats, features = c("Tmsb4x"))
+
+VlnPlot(kerats, features = c("Lmna"))
+
+
+
+
+
+```
+```{r}
+DimPlot(kerats)
+FeaturePlot(kerats, features = "Sptbn2", label = TRUE)
+FeaturePlot(kerats, features = "Amotl2", label = TRUE)
+
+
+FeaturePlot(kerats, features = "Tmsb4x", label = TRUE)
+
+FeaturePlot(kerats, features = "Anxa1", label = TRUE)
+```
+
+```{r}
+kerat_marker_gene <- "Lor"
+list_of_features <- c("Sptbn2","Tmsb4x","Amotl2","Anxa1")
+
+# Parse list_of_features to featurescatter
+
+for (gene in list_of_features){
+
+  p <- FeatureScatter(kerats, feature1 = (kerat_marker_gene), feature2 = (gene))
+  print(p)
+}
+
+# Use this line to see single feature plot, for ease. 
+#FeatureScatter(kerats, feature1 = kerat_marker_gene, feature2 = "Sptbn2")
+```
+
+
+
+```{r}
+# #Dermal Fib markers
+# # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6204438/#:~:text=These%20different%20dermal%20fibroblast%20cell,et%20al.%2C%202018).
+# VlnPlot(kerats, features = c("Dpp4")) #CD26
+# 
+# VlnPlot(kerats, features = c("Thy1")) #CD90 - dermal fib marker
+# VlnPlot(kerats, features = c("Vim"))
+# 
+# #cluster 4 is fibroblasts, need to remove. 
+```
+
+```{r}
+# #SET IDENTS THAT ARE TO BE REMOVED BASED ON THIS INFO
+# extracted_clusters <- c("0", "1", "2", "3", "5")
+# 
+# #subset seurat object
+# keratinocytes <- subset(kerats, idents = extracted_clusters)
+# keratinocytes
+# 
+# saveRDS(keratinocytes, file = "keratinocytes_only.rds")
+```
+
+
+```{r}
+# set working directory
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Spatial/Scripts")
+
+# load .rds file with pre-filtered data. 
+kerats <- readRDS(file = "keratinocytes_only.rds")
+
+kerats
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(kerats, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+summary(kerats@meta.data)
+```
+
+```{r}
+
+#run the PCA analysis of the dataset
+kerats <- RunPCA(kerats, features = VariableFeatures(object = kerats))
+
+# Examine and visualize PCA results a few different ways
+print(kerats[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+
+```{r}
+
+#elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
+ElbowPlot(kerats)
+
+#pick 6 PCs
+```
+```{r}
+#Here is where we optimise the number of PCs used to cluster the cells, and the resolution of the clustering algorithm.
+kerats <- FindNeighbors(kerats, dims = 1:6)
+kerats <- FindClusters(kerats, resolution = 0.5)
+
+head(Idents(kerats), 5)
+```
+
+```{r}
+#Plot UMAP
+kerats <- RunUMAP(kerats, dims = 1:5)
+DimPlot(kerats, reduction = "umap")
+DimPlot(kerats, reduction = "pca")
+```
+
+```{r}
+#Keratinocyte markers
+VlnPlot(kerats, features = c("Lor"))
+VlnPlot(kerats, features = c("Ivl"))
+VlnPlot(kerats, features = c("Flg"))
+
+VlnPlot(kerats, features = c("Krt10"))
+VlnPlot(kerats, features = c("Krt5"))
+VlnPlot(kerats, features = c("Slurp1"))
+VlnPlot(kerats, features = c("Crnn"))
+
+
+
+```
+
+```{r}
+#Keratinocyte markers
+VlnPlot(kerats, features = c("Sptbn2"))
+VlnPlot(kerats, features = c("Amotl2"))
+VlnPlot(kerats, features = c("Anxa1"))
+VlnPlot(kerats, features = c("Tmsb4x"))
+
+VlnPlot(kerats, features = c("Lmna"))
+
+
+
+
+
+```
+```{r}
+DimPlot(kerats)
+FeaturePlot(kerats, features = "Lor", label = TRUE)
+FeaturePlot(kerats, features = "Flg", label = TRUE)
+
+
+FeaturePlot(kerats, features = "Lce1m", label = TRUE)
+
+FeaturePlot(kerats, features = "Trp63", label = TRUE)
+```
+```{r}
+DimPlot(kerats)
+FeaturePlot(kerats, features = "Anxa1", label = TRUE)
+FeaturePlot(kerats, features = "Sptbn2", label = TRUE)
+FeaturePlot(kerats, features = "Amotl2", label = TRUE)
+FeaturePlot(kerats, features = "Tmsb4x", label = TRUE)
+```
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones using only.pos = TRUE
+kerats.markers <- FindAllMarkers(kerats, only.pos = FALSE, min.pct = 0.25, logfc.threshold = 0.25)
+kerats.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_log2FC)
+
+cluster_markers <- kerats.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -0.6, 0.6) & p_val_adj < 0.05)
+
+
+top_markers <- kerats.markers %>% group_by(cluster) %>% filter(!between(avg_log2FC, -1, 1) & p_val_adj < 0.05)
+
+#write out markers to excel file. Cosnider using CSV as these are easier to manipulate.
+
+write.xlsx(cluster_markers,"refined_kerats_allcluster_markers.xlsx")
+# https://scrnaseq-course.cog.sanger.ac.uk/website/seurat-chapter.html
+# has a tutorial explaining these things
+```
