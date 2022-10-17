@@ -723,12 +723,14 @@ kerato@reductions$umap@cell.embeddings %>%
   facet_wrap(vars(largest_gene)) +theme_classic()
 ```
 ```{r}
+png("images_out/umap/phases_and_clusters.png",width = 400, height = 600)
 kerato@reductions$umap@cell.embeddings %>%
   as_tibble() %>%
   add_column(seurat_clusters=kerato$seurat_clusters, Phase=kerato$Phase) %>%
   ggplot(aes(x=UMAP_1, y=UMAP_2, colour=seurat_clusters)) +
   geom_point() +
-  facet_wrap(vars(Phase)) + theme_classic()
+  facet_grid(vars(Phase)) + theme_classic() + labs(colour = "Cluster", x = "UMAP 1", y = "UMAP 2")
+dev.off()
 ```
 
 ```{r}
@@ -766,15 +768,15 @@ granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2
 ```
 
 ```{r}
-png("images_out/basal_markers_heatmap.png",width = 600, height = 400)
+png("images_out/vln_and_heat/basal_markers_heatmap.png",width = 600, height = 400)
 DoHeatmap(kerato, features = basal.kerato.markers)
 dev.off()
 
-png("images_out/spinous_markers_heatmap.png",width = 600, height = 350)
+png("images_out/vln_and_heat/spinous_markers_heatmap.png",width = 600, height = 350)
 DoHeatmap(kerato, features = spinous.kerato.markers)
 dev.off()
 
-png("images_out/granular_markers_heatmap.png",width = 600, height = 300)
+png("images_out/vln_and_heat/granular_markers_heatmap.png",width = 600, height = 300)
 DoHeatmap(kerato, features = granular.kerato.markers)
 dev.off()
 
@@ -782,17 +784,17 @@ dev.off()
 
 ```{r}
 # basal markers
-png("images_out/basal_markers_vln.png",width = 400, height = 500)
+png("images_out/vln_and_heat/basal_markers_vln.png",width = 400, height = 500)
 Stacked_VlnPlot(seurat_object = kerato, features = basal.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
 dev.off()
 
 # spinous markers
-png("images_out/spinous_markers_vln.png",width = 400, height = 400)
+png("images_out/vln_and_heat/spinous_markers_vln.png",width = 400, height = 400)
 Stacked_VlnPlot(seurat_object = kerato, features = spinous.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
 dev.off()
 
 # granular markers
-png("images_out/granular_markers_vln.png",width = 400, height = 300)
+png("images_out/vln_and_heat/granular_markers_vln.png",width = 400, height = 300)
 Stacked_VlnPlot(seurat_object = kerato, features = granular.kerato.markers, x_lab_rotate = TRUE, colors_use = plot.colours) 
 dev.off()
 ```
@@ -803,12 +805,12 @@ dev.off()
 actin.cluster.markers <- c("Anxa1", "Sptbn2", "Rflnb", "Cavin3", "Tmsb4x", "Phpt1", "Cav1", "Ctsl", "Amotl2", "Hsp90b1", "Slc2a1", "Gmfg", "Dstn")
 
 
-png("images_out/actin_markers_vln.png",width = 400, height = 650)
+png("images_out/vln_and_heat/actin_markers_vln.png",width = 400, height = 650)
 Stacked_VlnPlot(seurat_object = kerato, features = actin.cluster.markers, x_lab_rotate = TRUE, colors_use = plot.colours)
 dev.off()
 
 
-png("images_out/actin_markers_heatmap.png",width = 600, height = 500)
+png("images_out/vln_and_heat/actin_markers_heatmap.png",width = 600, height = 500)
 DoHeatmap(kerato, features = actin.cluster.markers)
 dev.off()
 
