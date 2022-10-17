@@ -1,0 +1,772 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+```{r}
+#some ideas taken from here https://www.bioinformatics.babraham.ac.uk/training/10XRNASeq/seurat_workflow.html
+
+# install.packages(c("tidyverse", "biomaRt","ggthemes","data.table","patchwork","Seurat", "reshape2"))
+
+
+#load libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(data.table)
+library(stringr)
+library(ggplot2)
+library("biomaRt") 
+library(ggthemes)
+library(reshape2)
+library(tidyverse)
+library(RColorBrewer)
+library(ggsci)
+library(scCustomize)
+
+set.seed(42)
+
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Seurat/SandLKerato")
+
+#load the dataset from the raw data downloaded
+kerato.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Seurat/SandLKerato/rawdata/")
+
+#initialise the seurat object with the raw (non-normalised) data.
+kerato <- CreateSeuratObject(counts = kerato.data, project = "Kerato", min.cells = 3, min.features = 100)
+kerato
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats. Added percentage of mitochondrial RNA per barcode to 'percent.mt'. 
+
+grep("^Mt-",rownames(kerato@assays$RNA@counts),value = TRUE)
+
+kerato[["percent.mt"]] <- PercentageFeatureSet(kerato, pattern = "^Mt-")
+
+# show example metadata present. 
+head(kerato@meta.data, 5)
+
+
+```
+
+```{r}
+#ribosomal genes
+
+grep("^Rp[ls]",rownames(kerato@assays$RNA@counts),value = TRUE)
+
+kerato[["percent.ribosomal"]] <- PercentageFeatureSet(kerato,pattern="^Rp[ls]") 
+
+head(kerato$percent.ribosomal)
+```
+
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(kerato, features = c("nFeature_RNA", "nCount_RNA"))
+
+VlnPlot(kerato, features = c("percent.mt", "percent.ribosomal"))
+
+
+VlnPlot(kerato, features = c("nFeature_RNA", "nCount_RNA")) + scale_y_log10()
+
+VlnPlot(kerato, features = c("percent.mt", "percent.ribosomal")) + scale_y_log10()
+
+```
+```{r}
+#In this example we run apply over the columns (cells) and calculate what percentage of the data comes from the single most observed gene. Again, having a high proportion of your data dominated by a single gene would be a concerning sign. We will also look later at the specific most highly expressed genes.
+
+
+kerato[rownames(kerato) != "Malat1",] -> kerato.nomalat
+
+apply(
+  kerato.nomalat@assays$RNA@counts,
+  2,
+  max
+) -> kerato.nomalat$largest_count
+
+apply(
+  kerato.nomalat@assays$RNA@counts,
+  2,
+  which.max
+) -> kerato.nomalat$largest_index
+
+rownames(kerato.nomalat)[kerato.nomalat$largest_index] -> kerato.nomalat$largest_gene
+
+100 * kerato.nomalat$largest_count / kerato.nomalat$nCount_RNA -> kerato.nomalat$percent.Largest.Gene
+
+kerato$largest_gene <- kerato.nomalat$largest_gene
+kerato$percent.Largest.Gene <- kerato.nomalat$percent.Largest.Gene
+# 
+# rm(kerato.nomalat) #will remove the nomalat columns
+#no malat cells not removed due to reducing levels too much. 
+
+kerato
+```
+
+```{r}
+VlnPlot(kerato, features=c("percent.Largest.Gene"))
+```
+
+
+```{r}
+#create table of QC metrics and name largest gene. 
+
+as_tibble(
+  kerato[[]],
+  rownames="Cell.Barcode"
+) -> qc.metrics
+
+qc.metrics
+```
+```{r}
+
+qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.mt)) + 
+  geom_point() + 
+  scale_color_gradientn(colours=c("black","blue","green2","red","yellow")) +
+  ggtitle("Example of plotting QC metrics") +
+  geom_hline(yintercept = 200) +
+  geom_hline(yintercept = 6000) + theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey')) +
+  xlab("Number of counts") + 
+  ylab("Number of features") + labs(colour = "% mitochondrial RNA")
+```
+
+```{r}
+#plotting complexity
+# The standard way of calculating this is log10(genes)/log10(counts) however this gives absolute values which are difficult to judge. A possibly better approach is to fit a line through the cloud and then calculate the difference from the observed value to the expected.
+
+qc.metrics %>%
+  mutate(complexity=log10(nFeature_RNA) / log10(nCount_RNA))  -> qc.metrics
+
+lm(log10(qc.metrics$nFeature_RNA)~log10(qc.metrics$nCount_RNA)) -> complexity.lm
+
+complexity.lm
+
+qc.metrics %>%
+  mutate(
+    complexity_diff = log10(nFeature_RNA) - ((log10(qc.metrics$nCount_RNA)*complexity.lm$coefficients[2])+complexity.lm$coefficients[1])
+  ) -> qc.metrics
+
+qc.metrics %>%
+  ggplot(aes(x=complexity_diff)) +
+  geom_density(fill="yellow") +
+  xlab("Complexity differential") + 
+  ylab("Density") +
+  theme_calc() + geom_vline(xintercept = 0)
+```
+```{r}
+min(c(max(qc.metrics$complexity_diff),0-min(qc.metrics$complexity_diff))) -> complexity_scale
+
+qc.metrics %>%
+  mutate(complexity_diff=replace(complexity_diff,complexity_diff< -0.1,-0.1)) %>%
+  ggplot(aes(x=log10(nCount_RNA), y=log10(nFeature_RNA), colour=complexity_diff)) +
+  geom_point(size=0.5) +
+  geom_abline(slope=complexity.lm$coefficients[2], intercept = complexity.lm$coefficients[1]) +
+  scale_colour_gradient2(low="blue2",mid="grey",high="red2") +
+  xlab("log10(counts)") + 
+  ylab("log10(features)") +
+  labs(colour = "Complexity differential") + 
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'))
+```
+```{r}
+# add generated metadata here
+complexity.diff <- qc.metrics %>% pull(complexity_diff)
+
+kerato@meta.data <- cbind(kerato@meta.data, complexity.diff)
+
+# kerato <- AddMetaData(object = kerato, metadata = complexity.diff, col.name = "complexity_diff")
+```
+
+```{r}
+qc.metrics.log10.scatter <- qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.mt)) + 
+  geom_point(size=0.7) + 
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  ggtitle("QC metrics across barcodes") +
+  geom_abline(slope=complexity.lm$coefficients[2], intercept = complexity.lm$coefficients[1]) +
+  geom_hline(yintercept = 200) +
+  geom_hline(yintercept = 6000) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("Log10(Number of counts)") + 
+  ylab("Log10(Number of features)") +
+  labs(colour = "% mitochondrial RNA") + theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'))
+
+ggsave("qc_log10_scatter.tiff", plot = print(qc.metrics.log10.scatter, device = "tiff", height = 336, width = 544, units = "px"))
+
+```
+
+```{r}
+qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(nCount_RNA,nFeature_RNA,colour=percent.ribosomal)) + 
+  geom_point(size=0.7) + 
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  ggtitle("QC metrics across barcodes") +
+  geom_hline(yintercept = 200) +
+  geom_hline(yintercept = 6000) + geom_abline(slope=complexity.lm$coefficients[2], intercept = complexity.lm$coefficients[1]) +
+  scale_x_log10() + scale_y_log10() +
+  xlab("Log10(Number of counts)") + 
+  ylab("Log10(Number of features)") +
+  labs(colour = "% ribosomal RNA") + theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'))
+```
+```{r}
+qc.metrics %>%
+  ggplot(aes(x=percent.Largest.Gene, y=percent.ribosomal, colour = complexity_diff)) +
+  geom_point() + 
+  geom_smooth(method = "lm")+
+  xlab("% largest gene") + 
+  ylab("% ribosomal genes") +
+  ylim(0, NA) +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey')) + scale_color_gradientn(colors=c("black","blue","green2","red","yellow"))
+  
+```
+
+```{r}
+qc.metrics %>%
+  ggplot(aes(x=percent.Largest.Gene, y=percent.mt, colour = complexity_diff)) +
+  geom_point() + 
+  geom_smooth(method = "lm")+
+  xlab("% largest gene") + 
+  ylab("% mitochondrial genes") +
+  ylim(0, NA)+
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey')) + scale_color_gradientn(colors=c("black","blue","green2","red","yellow"))
+
+```
+
+
+```{r}
+qc.metrics %>%
+  group_by(largest_gene) %>%
+  count() %>%
+  arrange(desc(n)) -> largest_gene_list
+
+largest_gene_list
+```
+```{r}
+
+
+largest_gene_list %>%
+  filter(n>5) %>%
+  pull(largest_gene) -> largest_genes_to_plot
+
+qc.metrics %>%
+  filter(largest_gene %in% largest_genes_to_plot) %>%
+  mutate(largest_gene=factor(largest_gene, levels=largest_genes_to_plot)) %>%
+  arrange(largest_gene) %>%
+  ggplot(aes(x=log10(nCount_RNA), y=log10(nFeature_RNA), colour=largest_gene)) +
+  geom_point(size=1) +
+  scale_colour_manual(values=c("grey",RColorBrewer::brewer.pal(9,"Set1"))) +
+  xlab("log10(counts)") + 
+  ylab("log10(features)") +
+  labs(colour = "Largest gene") + 
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'))
+```
+```{r}
+qc.metrics %>%
+  filter(largest_gene %in% largest_genes_to_plot) %>%
+  mutate(largest_gene=factor(largest_gene, levels=largest_genes_to_plot)) %>%
+  arrange(largest_gene) %>%
+  ggplot(aes(x=complexity_diff, y=percent.Largest.Gene, colour=largest_gene)) +
+  geom_point()+
+  scale_colour_manual(values=c("grey",RColorBrewer::brewer.pal(9,"Set1"))) + 
+  xlab("Complexity differential") + 
+  ylab("% largest gene") +
+  labs(colour = "Largest gene") +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'))
+```
+```{r}
+qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(x=complexity_diff, y=percent.Largest.Gene, colour=percent.mt)) +
+  geom_point() +
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  xlab("Complexity differential") + 
+  ylab("% largest gene") +
+  labs(colour = "% mitochondrial RNA") +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12))
+
+```
+```{r}
+qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(x=complexity_diff, y=percent.mt, colour=percent.Largest.Gene)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  xlab("Complexity differential") + 
+  ylab("% mitochondrial RNA") +
+  labs(colour = "% largest gene") +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12))
+```
+
+
+```{r}
+qc.metrics %>%
+  arrange(percent.ribosomal) %>%
+  ggplot(aes(x=complexity_diff, y=percent.Largest.Gene, colour=percent.ribosomal)) +
+  geom_point() +
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  xlab("Complexity differential") + 
+  ylab("% largest gene") +
+  labs(colour = "% ribosomal mRNA") +
+  
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12)) 
+```
+```{r}
+qc.metrics %>%
+  arrange(percent.mt) %>%
+  ggplot(aes(x=complexity_diff, y=percent.ribosomal, colour=percent.Largest.Gene)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  scale_color_gradientn(colors=c("black","blue","green2","red","yellow")) +
+  xlab("Complexity differential") + 
+  ylab("% ribosomal mRNA") +
+  labs(colour = "% largest gene") +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12))
+```
+
+```{r}
+qc.metrics %>%
+  ggplot(aes(percent.mt)) + 
+  geom_histogram(binwidth = 0.5, fill="yellow", colour="black") +
+  ggtitle("Distribution of percentage mitochondrial RNA") +
+  geom_vline(xintercept = 50) +
+  xlab("% mitochondrial RNA") + 
+  ylab("Count") +
+  theme_gdocs()
+
+
+
+```
+```{r}
+qc.metrics %>%
+  ggplot(aes(percent.Largest.Gene)) + 
+  geom_histogram(binwidth = 0.7, fill="coral", colour="black") +
+  ggtitle("Distribution of Percentage Largest Gene") +
+  xlab("% largest gene") + 
+  ylab("Count") +
+  theme_gdocs()
+```
+```{r}
+ggplot(mapping = aes(kerato@assays$RNA@data["Gapdh",])) + 
+  geom_histogram(binwidth = 0.05, fill="coral", colour="black") + 
+  ggtitle("GAPDH expression distribution") +
+  xlab("GADPH Expression") + 
+  ylab("Count") +
+  theme_calc()
+```
+
+
+```{r}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+plot1 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot3 <- FeatureScatter(kerato, feature1 = "percent.mt" , feature2 = "nFeature_RNA") + xlab('Percentage mitochondrial RNA') + ylab('Barcode feature count') + theme(legend.position = "None")
+plot1 
+plot2
+plot3
+summary(kerato@meta.data)
+```
+```{r}
+# make new dataframe with superfluous info removed
+keep.columns <- c("Cell.Barcode","nCount_RNA","nFeature_RNA","percent.mt","percent.ribosomal","percent.Largest.Gene")
+melt.qc <- qc.metrics[keep.columns]
+
+
+# melt the dataframe so boxplot of QCs can be generated
+melt.qc <- melt(melt.qc, id="Cell.Barcode")
+
+# plot violin plots of metrics
+qc.metrics.violin <- ggplot(melt.qc, aes(x = variable, y = value)) + 
+geom_violin(aes(x = variable, y = value, fill = variable)) + geom_jitter(size = 0.2, position = position_jitter(seed= 1, width = 0.2)) + facet_wrap(~ variable, scales = "free")  +
+  theme_calc() + theme(title = element_blank(), axis.text.x = element_blank(), strip.text = element_blank(), legend.position = c(0.85, 0.2)) +labs(colour = "Measurement", x = element_blank(), y = "Value") + scale_fill_npg(name = "Measurement", labels=c("Number of counts", "Number of features","% mtRNA", "% ribosomal genes","% largest gene" ))
+
+qc.metrics.violin
+
+ggsave("qc_violins.tiff", plot = print(qc.metrics.violin, device = "tiff", dpi = 400))
+
+# plot violin plots of metrics with logarithmic scaled values
+qc.metrics.violin.log10 <- ggplot(melt.qc, aes(x = variable, y = value)) + 
+geom_violin(aes(x = variable, y = value, fill = variable)) + geom_jitter(size = 0.2, position = position_jitter(seed= 1, width = 0.2)) + facet_wrap(~ variable, scales = "free")  + scale_y_log10()+
+  theme_calc() + theme(title = element_blank(), axis.text.x = element_blank(), strip.text = element_blank(), legend.position = c(0.85, 0.2)) +labs(colour = "Measurement", x = element_blank(), y = "Log10(Measurement Value)") + scale_fill_npg(name = "Measurement", labels=c("Number of counts", "Number of features","% mtRNA", "% ribosomal genes","% largest gene" ))
+
+qc.metrics.violin.log10
+
+ggsave("qc_violins_log10.tiff", plot = print(qc.metrics.violin.log10, device = "tiff", dpi = 400))
+
+```
+
+```{r}
+# here is where we filter with QC metrics, look at violin plots to see number of cells excluded. Will need high mt% and low feature no. to process majority of cells
+kerato <- subset(kerato, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 50)
+
+kerato_info <- kerato@meta.data %>% as.data.frame()
+## extract meta data
+# the resulting object has one "row" per cell
+cat('Number of cells in analysis:', nrow(kerato_info))
+#number of cells pulled through using the filters above is printed to the terminal.
+
+```
+```{r}
+#log normalisation of data
+kerato <- NormalizeData(kerato, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+
+```{r}
+library(Seurat)
+library("biomaRt") 
+
+# sphase_humanGenes <- cc.genes.updated.2019$s.genes
+# g2mphase_humanGenes <- cc.genes.updated.2019$g2m.genes
+# 
+# human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+# rat = useMart("ensembl", dataset = "rnorvegicus_gene_ensembl")
+# 
+# x = sphase_humanGenes
+# 
+# r.s.genes = getLDS(attributes = c("rgd_symbol"), 
+#                  filters = "rgd_symbol", 
+#                  values = x , 
+#                  mart = rat, 
+#                  attributesL = c("hgnc_symbol"), 
+#                  martL = human, 
+#                  uniqueRows=T)
+# 
+# x = g2mphase_humanGenes
+# r.g2m.genes = getLDS(attributes = c("rgd_symbol"), 
+#                  filters = "rgd_symbol", 
+#                  values = x , 
+#                  mart = rat, 
+#                  attributesL = c("hgnc_symbol"), 
+#                  martL = human, 
+#                  uniqueRows=T)
+
+
+#function to check mirror access is working
+# ensembl = useMart("ensembl", host="https://useast.ensembl.org")
+# dim(listDatasets(ensembl))
+
+# host="https://useast.ensembl.org",
+
+# Basic function to convert mouse to human gene names
+convertHumanGeneList <- function(x){
+require("biomaRt")
+  
+# mart <- useMart("ENSEMBL_MART_ENSEMBL")
+# human <- useDataset("hsapiens_gene_ensembl", mart)
+
+human.mart <- biomaRt::useMart(host="https://dec2021.archive.ensembl.org", "ENSEMBL_MART_ENSEMBL", dataset="hsapiens_gene_ensembl")
+# rat <- useDataset("rnorvegicus_gene_ensembl", mart)
+
+rat.mart <- biomaRt::useMart(host="https://dec2021.archive.ensembl.org", "ENSEMBL_MART_ENSEMBL", dataset="rnorvegicus_gene_ensembl")
+
+# human = useMart("ensembl", host = 'https://www.ensembl.org', dataset = "hsapiens_gene_ensembl")
+# rat = useMart("ensembl",  host = 'https://www.ensembl.org', dataset = "rnorvegicus_gene_ensembl")
+
+# genesV2 = getLDS(attributes = c("rgd_symbol"), 
+#                  filters = "rgd_symbol", 
+#                  values = x , 
+#                  mart = rat, 
+#                  attributesL = c("hgnc_symbol"), 
+#                  martL = human, 
+#                  uniqueRows=T)
+
+genesV2 = getLDS(attributes = c("hgnc_symbol"), 
+                 filters = "hgnc_symbol", 
+                 values = x , 
+                 mart = human.mart, 
+                 attributesL = c("rgd_symbol"), 
+                 martL = rat.mart, 
+                 uniqueRows=T)
+
+ratx <- unique(genesV2[, 2])
+# Print the first 6 genes found to the screen
+print(head(ratx))
+return(ratx)
+}
+
+# maybe try this : https://support.bioconductor.org/p/122534/
+
+r.s.genes <- convertHumanGeneList(cc.genes.updated.2019$s.genes)
+r.g2m.genes <- convertHumanGeneList(cc.genes.updated.2019$g2m.genes)
+
+head(r.s.genes)
+head(r.g2m.genes)
+
+length(cc.genes.updated.2019$s.genes)
+length(r.s.genes)
+
+length(cc.genes.updated.2019$g2m.genes)
+length(r.g2m.genes)
+```
+
+```{r}
+
+kerato <- CellCycleScoring(kerato, s.features = r.s.genes, g2m.features = r.g2m.genes, set.ident = TRUE) 
+
+kerato[[]]
+#remake column of nested list like cc.genes
+# r.s.genes <- s_genes$RGD.symbol
+# g2m.genes <- g2m_genes$RGD.symbol
+# #nested list with equivalent titles. 
+# ratGenes <- list(s.genes = s_genes, g2m.genes = g2m_genes)
+
+
+
+# kerato <- CellCycleScoring(kerato, s.features = ratGenes$s.genes, g2m.features = ratGenes$g2m.genes, set.ident = TRUE)
+#this command reveals that not enough of the genes exist in the dataset for this analysis to be performed. 
+
+#even building a new seurat object with min.cells = 1 (only allows genes in that have expression in 1 cell) this fails
+
+
+```
+```{r}
+
+kerato.tbl <- as_tibble(kerato[[]])                                                # Replicate original data
+kerato.tbl$Phase <- factor(kerato.tbl$Phase,                                    # Change ordering manually
+                  levels = c("G1","S","G2M")) 
+
+kerato.tbl %>%
+  ggplot(aes(Phase)) + geom_bar(aes(fill = Phase)) + theme_calc() + scale_fill_npg()
+
+kerato.tbl %>%
+  ggplot(aes(x=S.Score, y=G2M.Score, color=Phase)) + 
+  geom_point() +
+  coord_cartesian(xlim=c(-0.15,0.15), ylim=c(-0.15,0.15)) +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12)) +scale_color_npg()
+
+table(kerato.tbl$Phase)
+```
+
+
+```{r}
+#finding HVGs
+# vst: First, fits a line to the relationship of log(variance) and log(mean) using local polynomial regression (loess). Then standardizes the feature values using the observed mean and expected variance (given by the fitted line). Feature variance is then calculated on the standardized values after clipping to a maximum (see clip.max parameter).
+kerato <- FindVariableFeatures(kerato, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(kerato), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(kerato)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 
+plot2
+```
+```{r}
+as_tibble(HVFInfo(kerato),rownames = "Gene") -> variance.data
+
+variance.data %>% 
+  mutate(hypervariable=Gene %in% VariableFeatures(kerato)
+) -> variance.data
+
+head(variance.data, n=10)
+```
+```{r}
+variance.data %>% 
+  ggplot(aes(log(mean),log(variance),color=hypervariable)) + 
+  geom_point() + 
+  scale_color_manual(values=c("black","red")) +
+  labs(colour = "Hypervariable?") +
+  theme_calc() +
+  theme(panel.grid.major.x = element_line(colour = 'light grey'), axis.line=element_line(color="black"), axis.line.y = element_line(color="black"), text = element_text(size =  12))
+```
+
+```{r}
+#Next, we apply a linear transformation ('scaling') that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData function:
+
+#Shifts the expression of each gene, so that the mean expression across cells is 0
+#Scales the expression of each gene, so that the variance across cells is 1
+#This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate
+#The results of this are stored in pbmc[["RNA"]]@scale.data
+all.genes <- rownames(kerato)
+kerato <- ScaleData(kerato, features = all.genes)
+```
+
+
+
+
+```{r}
+#run the PCA analysis of the dataset
+kerato <- RunPCA(kerato, features = VariableFeatures(object = kerato))
+
+# Examine and visualize PCA results a few different ways
+print(kerato[["pca"]], dims = 1:5, nfeatures = 5)
+```
+```{r}
+#visualise the PCA coordinates of genes
+VizDimLoadings(kerato, dims = 1, nfeatures = 20, reduction = "pca") + coord_flip() +  scale_x_reverse() + theme(axis.text.x = element_text(size = 6,angle = 45, vjust=1, hjust = 1))+ scale_colour_npg()
+```
+
+```{r}
+# plot cells using two PCAs as axis. 
+DimPlot(kerato, reduction = "pca")
+
+
+names(qc.metrics)
+```
+```{r}
+
+
+# umap_largest_genes_1 <- DimPlot(kerato, reduction="umap", group.by = "largest_gene",label = TRUE, label.size = 3) 
+# umap_largest_genes_2 <- LabelPoints(plot = umap_largest_genes_1, points = largest_genes_to_plot, repel = TRUE) 
+# 
+# 
+# umap_largest_genes_1
+# umap_largest_genes_2
+
+# plot1 <- VariableFeaturePlot(kerato)
+# plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+# plot1 
+# plot2
+
+
+
+
+
+```
+
+
+```{r}
+#In particular DimHeatmap allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting cells to a number plots the 'extreme' cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
+DimHeatmap(kerato, dims = 1:2, cells = 300, balanced = TRUE)
+DimHeatmap(kerato, dims = 3:4, cells = 300, balanced = TRUE)
+DimHeatmap(kerato, dims = 5:6, cells = 300, balanced = TRUE)
+DimHeatmap(kerato, dims = 7:8, cells = 300, balanced = TRUE)
+```
+```{r}
+# NOTE: This process can take a long time for big datasets, comment out for expediency. More approximate techniques such as those implemented in ElbowPlot() can be used to reduce computation time
+kerato <- JackStraw(kerato, num.replicate = 100)
+kerato <- ScoreJackStraw(kerato, dims = 1:20)
+
+JackStrawPlot(kerato, dims = 1:15)
+```
+```{r}
+#elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
+ElbowPlot(kerato)
+```
+
+```{r}
+#Here is where we optimise the number of PCs used to cluster the cells, and the resolution of the clustering algorithm.
+kerato <- FindNeighbors(kerato, dims = 1:7)
+kerato <- FindClusters(kerato, resolution = 0.4)
+
+head(Idents(kerato), 5)
+```
+
+```{r}
+
+```
+
+
+```{r}
+#Plot UMAP
+kerato <- RunUMAP(kerato, dims = 1:7)
+
+
+DimPlot(kerato, reduction = "umap")
+FeaturePlot(kerato, feature = "complexity.diff")
+# DimPlot(kerato, reduction = "pca")
+```
+
+```{r}
+kerato@meta.data %>%
+  group_by(seurat_clusters,Phase) %>%
+  count() %>%
+  group_by(seurat_clusters) %>%
+  mutate(percent=100*n/sum(n)) %>%
+  ungroup() %>%
+  ggplot(aes(x=seurat_clusters,y=percent, fill=Phase)) +
+  geom_col() +
+  ggtitle("Percentage of cell cycle phases per cluster") + theme_calc() + labs( x = "Cluster", y = "Percent")
+```
+```{r}
+VlnPlot(kerato,features="percent.Largest.Gene") + labs(title = "Percentage largest gene", x = "Cluster")
+VlnPlot(kerato,features="percent.ribosomal") + labs(title = "Percentage ribosomal genes", x = "Cluster")
+VlnPlot(kerato,features="percent.mt") + labs(title = "Percentage mitochondrial genes", x = "Cluster")
+VlnPlot(kerato,features="nFeature_RNA") + labs(title = "Features per barcode", x = "Cluster")
+VlnPlot(kerato,features="nCount_RNA") + labs(title = "Counts per barcode", x = "Cluster")
+
+
+```
+```{r}
+kerato@reductions$umap@cell.embeddings %>%
+  as_tibble() %>%
+  add_column(seurat_clusters=kerato$seurat_clusters, largest_gene=kerato$largest_gene) %>%
+  filter(largest_gene %in% largest_genes_to_plot) %>%
+  ggplot(aes(x=UMAP_1, y=UMAP_2, colour=seurat_clusters)) +
+  geom_point() +
+  facet_wrap(vars(largest_gene)) + theme_clean()
+```
+```{r}
+kerato@reductions$umap@cell.embeddings %>%
+  as_tibble() %>%
+  add_column(seurat_clusters=kerato$seurat_clusters, Phase=kerato$Phase) %>%
+  ggplot(aes(x=UMAP_1, y=UMAP_2, colour=seurat_clusters)) +
+  geom_point() +
+  facet_wrap(vars(Phase)) + theme_clean()
+```
+
+```{r}
+#You can save the object at this point so that it can easily be loaded back in without having to rerun the computationally intensive steps performed above, or easily shared with collaborators.
+saveRDS(kerato, file = "smalllargekera.rds")
+
+old.kerato <- readRDS("pseudoSLkera.rds")
+DimPlot(old.kerato, reduction = "umap")
+DimPlot(kerato, reduction = "umap")
+```
+```{r}
+# plot QC metrics on UMAP
+
+FeaturePlot(kerato,feature = "complexity.diff")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Complexity Differential")  
+
+FeaturePlot(kerato,feature = "nCount_RNA")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Counts per barcode")  
+
+FeaturePlot(kerato,feature = "nFeature_RNA")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Features per barcode") 
+
+FeaturePlot(kerato,feature = "percent.mt")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Percentage mitochondrial genes") 
+
+FeaturePlot(kerato,feature = "percent.ribosomal")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Percentage ribosomal genes") 
+
+FeaturePlot(kerato,feature = "percent.Largest.Gene")  + scale_color_gradientn(colors=c("black","purple","yellow")) + labs(x = "UMAP 1", y = "UMAP 2", title = "Percentage largest genes") 
+
+
+```
+```{r}
+DoHeatmap(kerato, features = kerato_marker_genes)
+```
+```{r}
+DoHeatmap(kerato, features = actin_markers)
+```
+```{r}
+basal.kerato.markers <- c("Krt14","Krt5","Cdh3","Krt15","Col17a1","Tp73","Fam83g","Fgfr3","Tp63","Bcl11b")
+spinous.kerato.markers <- c("Cdh1","Krt1","Krt10","Dsg1","Lgal57","Hopx","Cyp4f22","Grhl1","Prgs1","Klk9")
+granular.kerato.markers <- c("Dsc1","Krt2","Ivl","Tgm3","Kprp","Pof1b","Dnase1l2","Trex2","Otx1","Eps8l1","Card18")
+```
+
+```{r}
+DoHeatmap(kerato, features = basal.kerato.markers)
+FeaturePlot(kerato,feature = "Krt14")
+```
+

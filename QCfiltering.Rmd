@@ -1,0 +1,146 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+```{r}
+#load libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(data.table)
+library(stringr)
+library(ggplot2)
+
+#set working directory 
+setwd("~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Seurat/SandLKerato")
+
+#load the dataset from the raw data downloaded
+kerato.data <- Read10X(data.dir = "~/OneDrive - Queen Mary, University of London/QMUL/Lab/Coding/data/R/Seurat/SandLKerato/rawdata/")
+
+#initialise the seurat object with the raw (non-normalised) data.
+kerato <- CreateSeuratObject(counts = kerato.data, project = "Kerato", min.cells = 3, min.features = 100)
+kerato
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats. Added percentage of mitochondrial RNA per barcode to 'percent.mt'. 
+kerato[["percent.mt"]] <- PercentageFeatureSet(kerato, pattern = "^Mt-")
+
+# show example metadata present. 
+head(kerato@meta.data, 5)
+```
+```{r}
+# Visualize QC metrics as a violin plot
+VlnPlot(kerato, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+plot1 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(kerato, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot3 <- FeatureScatter(kerato, feature1 = "percent.mt" , feature2 = "nFeature_RNA") + xlab('Percentage mitochondrial RNA') + ylab('Barcode feature count') + theme(legend.position = "None")
+plot1 
+plot2
+plot3
+summary(kerato@meta.data)
+```
+
+```{r}
+# here is where we filter with QC metrics, look at violin plots to see number of cells excluded. Will need high mt% and low feature no. to process majority of cells
+kerato <- subset(kerato, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 50)
+
+kerato_info <- kerato@meta.data %>% as.data.frame()
+## extract meta data
+# the resulting object has one "row" per cell
+cat('Number of cells in analysis:', nrow(kerato_info))
+#number of cells pulled through using the filters above is printed to the terminal.
+
+```
+```{r}
+#log normalisation of data
+kerato <- NormalizeData(kerato, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+```{r}
+#finding HVGs
+# vst: First, fits a line to the relationship of log(variance) and log(mean) using local polynomial regression (loess). Then standardizes the feature values using the observed mean and expected variance (given by the fitted line). Feature variance is then calculated on the standardized values after clipping to a maximum (see clip.max parameter).
+kerato <- FindVariableFeatures(kerato, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(kerato), 10)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(kerato)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 
+plot2
+```
+```{r}
+#Next, we apply a linear transformation ('scaling') that is a standard pre-processing step prior to dimensional reduction techniques like PCA. The ScaleData function:
+
+#Shifts the expression of each gene, so that the mean expression across cells is 0
+#Scales the expression of each gene, so that the variance across cells is 1
+#This step gives equal weight in downstream analyses, so that highly-expressed genes do not dominate
+#The results of this are stored in pbmc[["RNA"]]@scale.data
+all.genes <- rownames(kerato)
+kerato <- ScaleData(kerato, features = all.genes)
+```
+
+```{r}
+#run the PCA analysis of the dataset
+kerato <- RunPCA(kerato, features = VariableFeatures(object = kerato))
+
+# Examine and visualize PCA results a few different ways
+print(kerato[["pca"]], dims = 1:5, nfeatures = 5)
+```
+```{r}
+#visualise the PCA coordinates of genes
+VizDimLoadings(kerato, dims = 1:2, reduction = "pca")
+```
+
+```{r}
+# plot cells using two PCAs as axis. 
+DimPlot(kerato, reduction = "pca")
+```
+
+
+```{r}
+#In particular DimHeatmap allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting cells to a number plots the 'extreme' cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
+DimHeatmap(kerato, dims = 1:7, cells = 500, balanced = TRUE)
+```
+```{r}
+# NOTE: This process can take a long time for big datasets, comment out for expediency. More approximate techniques such as those implemented in ElbowPlot() can be used to reduce computation time
+kerato <- JackStraw(kerato, num.replicate = 100)
+kerato <- ScoreJackStraw(kerato, dims = 1:20)
+
+JackStrawPlot(kerato, dims = 1:15)
+```
+```{r}
+#elbow plot , shows SD of PCs, elbow is where significance should begin to be negligible.
+ElbowPlot(kerato)
+```
+
+```{r}
+#Here is where we optimise the number of PCs used to cluster the cells, and the resolution of the clustering algorithm.
+kerato <- FindNeighbors(kerato, dims = 1:7)
+kerato <- FindClusters(kerato, resolution = 0.4)
+
+head(Idents(kerato), 5)
+```
+
+```{r}
+#Plot UMAP
+kerato <- RunUMAP(kerato, dims = 1:7)
+DimPlot(kerato, reduction = "umap")
+DimPlot(kerato, reduction = "pca")
+```
+```{r}
+#You can save the object at this point so that it can easily be loaded back in without having to rerun the computationally intensive steps performed above, or easily shared with collaborators.
+saveRDS(kerato, file = "smalllargekera.rds")
+```
