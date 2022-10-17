@@ -653,7 +653,8 @@ names(qc.metrics)
 
 ```{r}
 #In particular DimHeatmap allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting cells to a number plots the 'extreme' cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
-DimHeatmap(kerato, dims = 1:2, nfeatures = 20,cells = 300, balanced = TRUE)
+DimHeatmap(kerato, dims = 1:2, nfeatures = 20,cells = 300, balanced = TRUE, fast = F) 
+DimHeatmap(kerato, dims = 2, nfeatures = 20,cells = 300, balanced = TRUE)
 DimHeatmap(kerato, dims = 3:4, cells = 300, balanced = TRUE)
 DimHeatmap(kerato, dims = 5:6, cells = 300, balanced = TRUE)
 DimHeatmap(kerato, dims = 7:8, cells = 300, balanced = TRUE)
